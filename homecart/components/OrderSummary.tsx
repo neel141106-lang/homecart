@@ -1,10 +1,6 @@
 import React from "react";
-import { Product } from "./ProductCard";
-
-interface CartItem {
-  product: Product;
-  quantity: number;
-}
+import { Product } from "@/types/domain.types";
+import { CartItem } from "@/store/useCartStore";
 
 interface OrderSummaryProps {
   cartItems: CartItem[];

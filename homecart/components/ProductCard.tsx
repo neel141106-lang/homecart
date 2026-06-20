@@ -1,17 +1,9 @@
 import React from "react";
 import { PlusIcon, MinusIcon } from "./Icons";
+import { Product } from "@/types/domain.types";
 
-export interface Product {
-  id: string;
-  name: string;
-  category: string;
-  price: number;
-  isOrganic: boolean;
-  isEssential: boolean;
-  stock: number;
-  emoji: string;
-  unit: string;
-}
+export type { Product };
+
 
 interface ProductCardProps {
   product: Product;

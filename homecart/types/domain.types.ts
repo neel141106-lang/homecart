@@ -52,6 +52,11 @@ export interface Product {
   unit: string;
   isActive: boolean;
   createdAt: string;
+  // Image management: emoji used as placeholder when imageSource = 'placeholder'
+  emoji: string;
+  // Convenience derived booleans for UI badge rendering
+  isOrganic: boolean;
+  isEssential: boolean;
 }
 
 export interface Order {
@@ -132,6 +137,9 @@ export function mapProductToDomain(db: any): Product {
     unit: db.unit,
     isActive: db.is_active,
     createdAt: db.created_at,
+    emoji: db.emoji ?? "🛒",
+    isOrganic: db.product_type === "organic",
+    isEssential: db.product_type === "essential",
   };
 }
 
