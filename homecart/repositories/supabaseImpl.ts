@@ -23,7 +23,7 @@ import {
   ICustomRequestRepository,
   IDeliverySettingsRepository,
 } from "./interfaces";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/src/lib/supabase/client";
 
 // ========================================================
 // SUPABASE PROFILE REPOSITORY

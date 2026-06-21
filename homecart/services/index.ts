@@ -5,8 +5,7 @@
  * All methods return { data, error } tuples for predictable error handling.
  * Automatically selects Mock or Supabase repositories based on env config.
  */
-
-import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
+import { isSupabaseConfigured, supabase } from "@/src/lib/supabase/client";
 import {
   MockProfileRepository,
   MockProductRepository,
