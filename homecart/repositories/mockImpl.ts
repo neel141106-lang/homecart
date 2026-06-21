@@ -94,6 +94,9 @@ const SEED_PRODUCTS: Product[] = [
     unit: "100g",
     isActive: true,
     createdAt: new Date().toISOString(),
+    emoji: "🧈",
+    isOrganic: false,
+    isEssential: true,
   },
   {
     id: "p2",
@@ -108,6 +111,9 @@ const SEED_PRODUCTS: Product[] = [
     unit: "6 pcs",
     isActive: true,
     createdAt: new Date().toISOString(),
+    emoji: "🥭",
+    isOrganic: true,
+    isEssential: false,
   },
   {
     id: "p3",
@@ -122,6 +128,9 @@ const SEED_PRODUCTS: Product[] = [
     unit: "1 bundle",
     isActive: true,
     createdAt: new Date().toISOString(),
+    emoji: "🌿",
+    isOrganic: true,
+    isEssential: false,
   },
   {
     id: "p4",
@@ -136,6 +145,9 @@ const SEED_PRODUCTS: Product[] = [
     unit: "1 doz",
     isActive: true,
     createdAt: new Date().toISOString(),
+    emoji: "🍌",
+    isOrganic: false,
+    isEssential: true,
   },
   {
     id: "p5",
@@ -150,6 +162,9 @@ const SEED_PRODUCTS: Product[] = [
     unit: "4 pcs",
     isActive: true,
     createdAt: new Date().toISOString(),
+    emoji: "🍎",
+    isOrganic: true,
+    isEssential: false,
   },
   {
     id: "p6",
@@ -164,6 +179,9 @@ const SEED_PRODUCTS: Product[] = [
     unit: "1kg",
     isActive: true,
     createdAt: new Date().toISOString(),
+    emoji: "🌾",
+    isOrganic: false,
+    isEssential: true,
   },
   {
     id: "p7",
@@ -178,6 +196,9 @@ const SEED_PRODUCTS: Product[] = [
     unit: "500g",
     isActive: true,
     createdAt: new Date().toISOString(),
+    emoji: "🥣",
+    isOrganic: true,
+    isEssential: false,
   },
   {
     id: "p8",
@@ -192,6 +213,9 @@ const SEED_PRODUCTS: Product[] = [
     unit: "1L",
     isActive: true,
     createdAt: new Date().toISOString(),
+    emoji: "🥛",
+    isOrganic: false,
+    isEssential: true,
   },
 ];
 

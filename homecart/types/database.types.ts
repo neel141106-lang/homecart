@@ -79,6 +79,7 @@ export interface Database {
           stock: number;
           category_id: string | null;
           image_url: string | null;
+          emoji: string;
           image_source: "uploaded" | "demo" | "placeholder";
           product_type: "organic" | "essential" | "standard";
           unit: string;
@@ -93,6 +94,7 @@ export interface Database {
           stock?: number;
           category_id?: string | null;
           image_url?: string | null;
+          emoji?: string;
           image_source?: "uploaded" | "demo" | "placeholder";
           product_type?: "organic" | "essential" | "standard";
           unit: string;
@@ -107,6 +109,7 @@ export interface Database {
           stock?: number;
           category_id?: string | null;
           image_url?: string | null;
+          emoji?: string;
           image_source?: "uploaded" | "demo" | "placeholder";
           product_type?: "organic" | "essential" | "standard";
           unit?: string;

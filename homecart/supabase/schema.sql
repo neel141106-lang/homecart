@@ -94,6 +94,7 @@ create table public.products (
   stock integer not null default 0 check (stock >= 0),
   category_id uuid references public.categories(id) on delete set null,
   image_url text,
+  emoji text not null default '🛒',
   image_source text not null default 'placeholder' check (image_source in ('uploaded', 'demo', 'placeholder')),
   product_type text not null default 'standard' check (product_type in ('organic', 'essential', 'standard')),
   unit text not null, -- e.g., "100g", "6 pcs", "1kg"

@@ -118,6 +118,7 @@ export class SupabaseProductRepository implements IProductRepository {
       product_type: productData.productType,
       unit: productData.unit,
       is_active: productData.isActive,
+      emoji: productData.emoji,
     };
 
     const { data, error } = await supabase
@@ -141,6 +142,7 @@ export class SupabaseProductRepository implements IProductRepository {
     if (productUpdates.productType !== undefined) dbPayload.product_type = productUpdates.productType;
     if (productUpdates.unit !== undefined) dbPayload.unit = productUpdates.unit;
     if (productUpdates.isActive !== undefined) dbPayload.is_active = productUpdates.isActive;
+    if (productUpdates.emoji !== undefined) dbPayload.emoji = productUpdates.emoji;
 
     const { data, error } = await supabase
       .from("products")

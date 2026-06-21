@@ -6,7 +6,7 @@
  * Automatically selects Mock or Supabase repositories based on env config.
  */
 
-import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import {
   MockProfileRepository,
   MockProductRepository,
@@ -180,6 +180,44 @@ export const ImageService = {
    */
   revokePreviewUrl(url: string): void {
     URL.revokeObjectURL(url);
+  },
+
+  /**
+   * Uploads an image file to Supabase storage or simulates it in mock mode.
+   */
+  async uploadImage(file: File): Promise<ServiceResult<string>> {
+    const validation = this.validateImageFile(file);
+    if (!validation.valid) {
+      return fail(validation.error || "Invalid file");
+    }
+
+    if (isSupabaseConfigured) {
+      try {
+        const fileExt = file.name.split(".").pop();
+        const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+        const filePath = `products/${fileName}`;
+
+        const { error } = await supabase.storage
+          .from("product-images")
+          .upload(filePath, file);
+
+        if (error) {
+          return fail(error.message);
+        }
+
+        return ok(this.getStorageUrl(filePath));
+      } catch (e) {
+        return fail(e);
+      }
+    } else {
+      // Mock upload: create a mock local preview URL
+      try {
+        const mockUrl = this.createPreviewUrl(file);
+        return ok(mockUrl);
+      } catch (e) {
+        return fail(e);
+      }
+    }
   },
 };
 
