@@ -5,6 +5,10 @@
  * All methods return { data, error } tuples for predictable error handling.
  * Automatically selects Mock or Supabase repositories based on env config.
  */
+<<<<<<< HEAD
+=======
+
+>>>>>>> 11a4324 (complete stage 3 supabase integration)
 import { isSupabaseConfigured, supabase } from "@/src/lib/supabase/client";
 import {
   MockProfileRepository,
@@ -144,11 +148,10 @@ export const ImageService = {
 
   /**
    * Returns a Supabase Storage public URL for an uploaded image.
-   * (Stub — replace with real Storage bucket URL when credentials are set)
    */
   getStorageUrl(path: string): string {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-    return `${supabaseUrl}/storage/v1/object/public/product-images/${path}`;
+    const { data } = supabase.storage.from("product-images").getPublicUrl(path);
+    return data.publicUrl;
   },
 
   /**

@@ -266,3 +266,48 @@ create policy "Allow admins to update delivery settings"
 insert into public.delivery_settings (id, delivery_fee, free_delivery_above, minimum_order_amount, delivery_time, is_delivery_enabled)
 values (1, 30.00, 500.00, 0.00, '10 mins', true)
 on conflict (id) do nothing;
+
+-- ========================================================
+-- 8. STORAGE BUCKET & POLICIES
+-- ========================================================
+
+-- Create the product-images bucket
+insert into storage.buckets (id, name, public)
+values ('product-images', 'product-images', true)
+on conflict (id) do nothing;
+
+-- Policies for storage.objects
+create policy "Allow public read access to product images"
+  on storage.objects for select
+  using (bucket_id = 'product-images');
+
+create policy "Allow admin/shopkeeper to upload product images"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'product-images' and
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and role in ('admin', 'shopkeeper')
+    )
+  );
+
+create policy "Allow admin/shopkeeper to update product images"
+  on storage.objects for update
+  using (
+    bucket_id = 'product-images' and
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and role in ('admin', 'shopkeeper')
+    )
+  );
+
+create policy "Allow admin/shopkeeper to delete product images"
+  on storage.objects for delete
+  using (
+    bucket_id = 'product-images' and
+    exists (
+      select 1 from public.profiles
+      where id = auth.uid() and role in ('admin', 'shopkeeper')
+    )
+  );
+
