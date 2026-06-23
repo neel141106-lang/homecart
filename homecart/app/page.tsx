@@ -28,7 +28,9 @@ import { useProductStore } from "@/store/useProductStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useOrderStore } from "@/store/useOrderStore";
 import { useDeliveryStore } from "@/store/useDeliveryStore";
-import { PaymentMethod, UserRole } from "@/types/domain.types";
+import { PaymentMethod, UserRole, UserProfile, OrderStatus } from "@/types/domain.types";
+import { ProfileService } from "@/services";
+import { isSupabaseConfigured } from "@/src/lib/supabase/client";
 
 // Category display metadata (colours keyed by category name)
 const CATEGORY_META: Record<string, { color: string; border: string }> = {
@@ -42,7 +44,18 @@ const CATEGORY_META: Record<string, { color: string; border: string }> = {
 
 export default function Home() {
   // ── Auth Store ───────────────────────────────────────────
-  const { profile, setDemoRole } = useAuthStore();
+  const {
+    profile,
+    setDemoRole,
+    initAuth,
+    signInWithPhone,
+    verifyOtp,
+    signOut,
+    otpSent,
+    pendingPhone,
+    isLoading: isAuthLoading,
+    error: authError,
+  } = useAuthStore();
 
   // ── Product Store ────────────────────────────────────────
   const {
@@ -78,33 +91,91 @@ export default function Home() {
     lastPlacedOrder,
     isPlacing,
     loadOrders,
+    loadAllOrders,
+    updateStatus: updateOrderStatus,
     placeOrder,
     error: orderError,
   } = useOrderStore();
 
   // ── Delivery Store ───────────────────────────────────────
-  const { settings: deliverySettings, loadSettings, calculateFee } = useDeliveryStore();
+  const {
+    settings: deliverySettings,
+    loadSettings,
+    updateSettings: updateDeliverySettings,
+    calculateFee,
+  } = useDeliveryStore();
 
-  // ── Local UI State (navigation only) ────────────────────
+  // ── Local UI State (navigation & auth form inputs) ────────────────────
   const [activeTab, setActiveTab] = useState<string>("home");
   const [activeScreen, setActiveScreen] = useState<string>("home");
   const [address, setAddress] = useState({ tower: "", floor: "", flat: "" });
   const [addressErrors, setAddressErrors] = useState({ tower: false, floor: false, flat: false });
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("upi");
 
+  // Auth screen inputs
+  const [phoneInput, setPhoneInput] = useState("");
+  const [otpInput, setOtpInput] = useState("");
+
+  // Profiles cache (for mapping customer names on Admin/Shopkeeper dashboards)
+  const [allProfiles, setAllProfiles] = useState<UserProfile[]>([]);
+
+  // Delivery Settings Local Editing state
+  const [editFee, setEditFee] = useState<string>("");
+  const [editFreeAbove, setEditFreeAbove] = useState<string>("");
+  const [editTime, setEditTime] = useState<string>("");
+  const [editEnabled, setEditEnabled] = useState<boolean>(true);
+
   // ── Bootstrap on Mount ───────────────────────────────────
   useEffect(() => {
+    const unsubscribe = initAuth();
     loadCategories();
     loadProducts();
     loadSettings();
+    return () => unsubscribe();
   }, []);
 
-  // Load orders when profile is available
+  // Fetch all profiles for administrative lookup
+  useEffect(() => {
+    if (profile?.role === "admin" || profile?.role === "shopkeeper") {
+      ProfileService.listAll().then((res) => {
+        if (res.data) setAllProfiles(res.data);
+      });
+    }
+  }, [profile?.id, profile?.role]);
+
+  // Load orders when profile is available & manage role tabs
   useEffect(() => {
     if (profile) {
-      loadOrders(profile.id);
+      if (profile.role === "customer") {
+        loadOrders(profile.id);
+      } else {
+        loadAllOrders();
+      }
+
+      // Check route protection constraints
+      if (profile.role === "shopkeeper") {
+        if (activeTab !== "orders" && activeTab !== "profile") {
+          setActiveTab("orders");
+          setActiveScreen("orders-tab");
+        }
+      } else if (profile.role === "admin") {
+        if (activeTab !== "orders" && activeTab !== "settings" && activeTab !== "profile") {
+          setActiveTab("orders");
+          setActiveScreen("orders-tab");
+        }
+      }
     }
-  }, [profile?.id]);
+  }, [profile?.id, profile?.role]);
+
+  // Sync delivery settings updates to local form state
+  useEffect(() => {
+    if (deliverySettings) {
+      setEditFee(deliverySettings.deliveryFee.toString());
+      setEditFreeAbove(deliverySettings.freeDeliveryAbove.toString());
+      setEditTime(deliverySettings.deliveryTime);
+      setEditEnabled(deliverySettings.isDeliveryEnabled);
+    }
+  }, [deliverySettings]);
 
   // ── Derived values ───────────────────────────────────────
   const filteredProducts = getFilteredProducts();
@@ -126,6 +197,8 @@ export default function Home() {
       setActiveScreen(cartItemCount > 0 ? "checkout" : "cart-tab");
     } else if (tab === "orders") {
       setActiveScreen("orders-tab");
+    } else if (tab === "settings") {
+      setActiveScreen("admin-settings");
     } else if (tab === "profile") {
       setActiveScreen("profile-tab");
     }
@@ -192,45 +265,158 @@ export default function Home() {
   // ── Error Banner ─────────────────────────────────────────
   const ErrorBanner = ({ message, onRetry }: { message: string; onRetry?: () => void }) => (
     <div className="mx-4 my-2 bg-rose-50 border border-rose-200 rounded-2xl p-3 flex items-center justify-between gap-2">
-      <p className="text-xs font-semibold text-rose-700">⚠ {message}</p>
-      {onRetry && (
-        <button onClick={onRetry} className="text-xs font-bold text-rose-700 underline cursor-pointer">
-          Retry
-        </button>
-      )}
-    </div>
-  );
+  // ── Auth Loading Screen ──────────────────────────────────
+  if (isAuthLoading && !profile) {
+    return (
+      <MobileFrame>
+        <div className="flex-1 flex flex-col items-center justify-center bg-[#FDFBF7] p-6 text-center">
+          <div className="w-10 h-10 border-4 border-emerald-600/30 border-t-emerald-600 rounded-full animate-spin mb-4" />
+          <p className="text-xs font-bold text-stone-500">Checking your resident session...</p>
+        </div>
+      </MobileFrame>
+    );
+  }
 
-  // ── Role Switcher (Demo Mode Panel) ─────────────────────
-  const RoleSwitcher = () => (
-    <div className="flex gap-1.5 px-4 py-2 bg-amber-50/80 border-b border-amber-100/60 items-center">
-      <span className="text-[9px] font-extrabold text-amber-700 uppercase tracking-wider shrink-0">Demo Role:</span>
-      {(["customer", "shopkeeper", "admin"] as UserRole[]).map((role) => (
-        <button
-          key={role}
-          onClick={() => setDemoRole(role)}
-          className={`text-[9px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer capitalize ${
-            profile?.role === role
-              ? "bg-amber-500 text-white border-amber-500"
-              : "bg-white text-amber-700 border-amber-200 hover:bg-amber-50"
-          }`}
-        >
-          {role}
-        </button>
-      ))}
-    </div>
-  );
+  // ── Login Screen ─────────────────────────────────────────
+  if (!profile) {
+    return (
+      <MobileFrame>
+        <div className="flex-1 flex flex-col bg-[#FDFBF7] p-6 justify-between select-none">
+          <div className="flex flex-col gap-6 mt-8">
+            {/* Logo & Header */}
+            <div className="text-center flex flex-col items-center">
+              <span className="text-5xl filter drop-shadow-md mb-4 select-none animate-soft-bounce">🏡🛒</span>
+              <h2 className="text-2xl font-black text-stone-900 tracking-tight">HomeCart Authentication</h2>
+              <p className="text-xs text-stone-500 font-semibold mt-1">Exclusive micro-delivery for Prestige Residents</p>
+            </div>
+
+            {authError && <ErrorBanner message={authError} />}
+
+            {!otpSent ? (
+              /* Phone Input Screen */
+              <div className="bg-white border border-stone-150 rounded-3xl p-5 shadow-xs flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-stone-500">Enter Phone Number</label>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-4 text-xs font-bold text-stone-400">+91</span>
+                    <input
+                      type="tel"
+                      maxLength={10}
+                      placeholder="98765 43210"
+                      value={phoneInput}
+                      onChange={(e) => setPhoneInput(e.target.value.replace(/\D/g, ""))}
+                      className="w-full h-11 pl-12 pr-4 bg-stone-50 border border-stone-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 transition-all"
+                    />
+                  </div>
+                  <p className="text-[10px] text-stone-400 font-semibold mt-1 leading-relaxed">
+                    We will send a one-time OTP code to verify your resident flat association.
+                  </p>
+                </div>
+
+                <button
+                  onClick={async () => {
+                    if (phoneInput.length < 10) {
+                      useAuthStore.setState({ error: "Please enter a valid 10-digit phone number" });
+                      return;
+                    }
+                    await signInWithPhone(`+91${phoneInput}`);
+                  }}
+                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs tracking-wider uppercase rounded-xl shadow-3xs cursor-pointer active:scale-98 transition-all flex items-center justify-center"
+                >
+                  Send Verification Code
+                </button>
+              </div>
+            ) : (
+              /* OTP Verification Screen */
+              <div className="bg-white border border-stone-150 rounded-3xl p-5 shadow-xs flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5 text-center">
+                  <h4 className="text-xs font-bold text-stone-600">Verification Code Sent</h4>
+                  <p className="text-xs text-stone-400 font-semibold">
+                    Sent to +91 {pendingPhone?.replace("+91", "")}
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-bold text-stone-500">Enter 6-Digit OTP</label>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="123456"
+                    value={otpInput}
+                    onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ""))}
+                    className="w-full h-11 text-center bg-stone-50 border border-stone-200 rounded-xl text-sm font-extrabold tracking-widest focus:outline-none focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 transition-all"
+                  />
+                  {!isSupabaseConfigured && (
+                    <span className="text-[10px] text-amber-600 font-bold text-center mt-1">
+                      Demo mode active. Use code <span className="font-extrabold">123456</span> to log in.
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  onClick={async () => {
+                    if (otpInput.length < 6) {
+                      useAuthStore.setState({ error: "Please enter a 6-digit OTP code" });
+                      return;
+                    }
+                    const success = await verifyOtp(otpInput);
+                    if (success) {
+                      setOtpInput("");
+                    }
+                  }}
+                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs tracking-wider uppercase rounded-xl shadow-3xs cursor-pointer active:scale-98 transition-all flex items-center justify-center"
+                >
+                  Verify & Log In
+                </button>
+
+                <button
+                  onClick={() => {
+                    useAuthStore.setState({ otpSent: false, pendingPhone: null, error: null });
+                    setOtpInput("");
+                  }}
+                  className="text-stone-400 hover:text-stone-600 text-[10px] font-bold text-center underline cursor-pointer"
+                >
+                  Change Phone Number
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Demo Login Credentials (if Supabase is not configured) */}
+          {!isSupabaseConfigured && (
+            <div className="bg-amber-50/60 border border-amber-100/60 rounded-2xl p-3.5 flex flex-col gap-2">
+              <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">Demo Credentials:</span>
+              <div className="flex flex-col gap-1 text-[10px] font-bold text-amber-700">
+                <div className="flex justify-between">
+                  <span>Resident (Customer):</span>
+                  <span>98765 43210</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Store (Shopkeeper):</span>
+                  <span>99999 11111</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>HQ (Admin):</span>
+                  <span>90000 00000</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </MobileFrame>
+    );
+  }
 
   return (
     <MobileFrame>
       <div className="flex-1 flex flex-col bg-[#FDFBF7] overflow-y-auto no-scrollbar pb-16">
         {/* Demo Role Switcher */}
-        <RoleSwitcher />
+        {!isSupabaseConfigured && <RoleSwitcher />}
 
         {/* ======================================================== */}
         {/* HOME SCREEN                                               */}
         {/* ======================================================== */}
-        {activeScreen === "home" && (
+        {activeScreen === "home" && profile.role === "customer" && (
           <div className="flex flex-col px-4 py-4 gap-5">
             {/* Header */}
             <div className="flex items-center justify-between">
@@ -353,7 +539,7 @@ export default function Home() {
         {/* ======================================================== */}
         {/* PRODUCT LISTING SCREEN                                    */}
         {/* ======================================================== */}
-        {activeScreen === "products" && (
+        {activeScreen === "products" && profile.role === "customer" && (
           <div className="flex flex-col py-4 gap-4">
             <div className="flex items-center justify-between px-4">
               <div className="flex items-center gap-3">
@@ -469,7 +655,7 @@ export default function Home() {
         {/* ======================================================== */}
         {/* CHECKOUT SCREEN                                           */}
         {/* ======================================================== */}
-        {activeScreen === "checkout" && (
+        {activeScreen === "checkout" && profile.role === "customer" && (
           <div className="flex flex-col py-4 gap-5">
             <div className="flex items-center gap-3 px-4">
               <button
@@ -551,7 +737,7 @@ export default function Home() {
         {/* ======================================================== */}
         {/* SUCCESS SCREEN                                            */}
         {/* ======================================================== */}
-        {activeScreen === "success" && (
+        {activeScreen === "success" && profile.role === "customer" && (
           <div className="flex flex-col items-center justify-center py-16 px-6 text-center gap-6">
             <div className="w-20 h-20 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-md">
               <ShieldCheckIcon size={44} className="animate-soft-bounce" />
@@ -589,7 +775,7 @@ export default function Home() {
         {/* ======================================================== */}
         {/* EMPTY CART TAB                                            */}
         {/* ======================================================== */}
-        {activeScreen === "cart-tab" && (
+        {activeScreen === "cart-tab" && profile.role === "customer" && (
           <div className="flex flex-col items-center justify-center py-24 px-6 text-center gap-4">
             <span className="text-6xl filter drop-shadow-md select-none animate-soft-bounce">🛒</span>
             <div>
@@ -605,41 +791,206 @@ export default function Home() {
         {/* ======================================================== */}
         {activeScreen === "orders-tab" && (
           <div className="flex flex-col py-4 px-4 gap-5">
-            <h2 className="text-lg font-black text-stone-900 tracking-tight uppercase border-b border-stone-100 pb-2.5">Your Orders</h2>
-            {orders.length > 0 ? (
-              <div className="flex flex-col gap-4">
-                {orders.map((order) => {
-                  const orderCartItems = cartItemsList;
-                  return (
-                    <div key={order.id} className="bg-white border border-stone-150 rounded-3xl p-4 shadow-3xs flex flex-col gap-3.5">
-                      <div className="flex justify-between items-start">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-extrabold text-stone-850 tracking-tight">Order {order.id}</span>
-                          <span className="text-[10px] text-stone-400 font-semibold mt-0.5">{new Date(order.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+            {profile.role === "customer" ? (
+              /* Original Customer Orders List */
+              <>
+                <h2 className="text-lg font-black text-stone-900 tracking-tight uppercase border-b border-stone-100 pb-2.5">Your Orders</h2>
+                {orders.length > 0 ? (
+                  <div className="flex flex-col gap-4">
+                    {orders.map((order) => {
+                      return (
+                        <div key={order.id} className="bg-white border border-stone-150 rounded-3xl p-4 shadow-3xs flex flex-col gap-3.5">
+                          <div className="flex justify-between items-start">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-extrabold text-stone-850 tracking-tight">Order {order.id}</span>
+                              <span className="text-[10px] text-stone-400 font-semibold mt-0.5">{new Date(order.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                            </div>
+                            <span className="text-[9px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-100 uppercase tracking-wider flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping"></span>
+                              {order.status}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center border-t border-dashed border-stone-150 pt-3 text-xs">
+                            <span className="font-bold text-stone-500">via {order.paymentMethod.toUpperCase()}</span>
+                            <span className="text-sm font-extrabold text-stone-850">₹{order.totalAmount}</span>
+                          </div>
                         </div>
-                        <span className="text-[9px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-100 uppercase tracking-wider flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping"></span>
-                          {order.status}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center border-t border-dashed border-stone-150 pt-3 text-xs">
-                        <span className="font-bold text-stone-500">via {order.paymentMethod.toUpperCase()}</span>
-                        <span className="text-sm font-extrabold text-stone-850">₹{order.totalAmount}</span>
-                      </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-20 text-center px-4 bg-white border border-stone-150 rounded-3xl mt-2 gap-4">
+                    <span className="text-5xl filter drop-shadow-md select-none">📦</span>
+                    <div>
+                      <h4 className="text-sm font-bold text-stone-800">No orders yet</h4>
+                      <p className="text-xs text-stone-400 mt-1 max-w-[200px] mx-auto leading-relaxed">Once you place an order, you can track its delivery status here.</p>
                     </div>
-                  );
-                })}
-              </div>
+                    <button onClick={() => handleTabChange("home")} className="px-5 py-2.5 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl border border-emerald-100 hover:bg-emerald-100 cursor-pointer transition-colors">Browse Groceries</button>
+                  </div>
+                )}
+              </>
             ) : (
-              <div className="flex flex-col items-center justify-center py-20 text-center px-4 bg-white border border-stone-150 rounded-3xl mt-2 gap-4">
-                <span className="text-5xl filter drop-shadow-md select-none">📦</span>
-                <div>
-                  <h4 className="text-sm font-bold text-stone-800">No orders yet</h4>
-                  <p className="text-xs text-stone-400 mt-1 max-w-[200px] mx-auto leading-relaxed">Once you place an order, you can track its delivery status here.</p>
+              /* Admin & Shopkeeper Operations Dashboard */
+              <>
+                <div className="flex justify-between items-center border-b border-stone-100 pb-2.5">
+                  <h2 className="text-lg font-black text-stone-900 tracking-tight uppercase">
+                    {profile.role === "admin" ? "HQ Operations" : "Lobby Fulfillment"}
+                  </h2>
+                  <span className="text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-100 uppercase tracking-wider capitalize">
+                    {profile.role}
+                  </span>
                 </div>
-                <button onClick={() => handleTabChange("home")} className="px-5 py-2.5 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl border border-emerald-100 hover:bg-emerald-100 cursor-pointer transition-colors">Browse Groceries</button>
-              </div>
+
+                {orders.length > 0 ? (
+                  <div className="flex flex-col gap-4">
+                    {orders.map((order) => {
+                      const cust = allProfiles.find((p) => p.id === order.customerId);
+                      const custName = cust?.fullName || "Resident";
+                      const custAddress = cust
+                        ? `${cust.tower} • Floor ${cust.floor} • Flat ${cust.flatNumber}`
+                        : "Prestige Golfshire";
+
+                      return (
+                        <div key={order.id} className="bg-white border border-stone-150 rounded-3xl p-4 shadow-3xs flex flex-col gap-3.5">
+                          <div className="flex justify-between items-start">
+                            <div className="flex flex-col">
+                              <span className="text-xs font-extrabold text-stone-850 tracking-tight">Order {order.id.slice(0, 8)}...</span>
+                              <span className="text-[10px] text-stone-400 font-semibold mt-0.5">
+                                {new Date(order.createdAt).toLocaleDateString("en-IN", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                            </div>
+                            <span className="text-[9px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-100 uppercase tracking-wider capitalize flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping"></span>
+                              {order.status}
+                            </span>
+                          </div>
+
+                          {/* Customer info */}
+                          <div className="bg-stone-50 rounded-2xl p-3 border border-stone-100 flex flex-col gap-1">
+                            <span className="text-xs font-bold text-stone-800">{custName}</span>
+                            <span className="text-[10px] font-semibold text-stone-500">{custAddress}</span>
+                            {cust?.phone && (
+                              <span className="text-[9px] font-bold text-emerald-700 mt-0.5">{cust.phone}</span>
+                            )}
+                          </div>
+
+                          {/* Status Management Buttons */}
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            {(["preparing", "dispatched", "delivered", "cancelled"] as OrderStatus[]).map((st) => (
+                              <button
+                                key={st}
+                                onClick={() => updateOrderStatus(order.id, st)}
+                                className={`text-[9px] font-bold px-2 py-1 rounded-full border transition-all cursor-pointer capitalize ${
+                                  order.status === st
+                                    ? "bg-emerald-600 text-white border-emerald-600 shadow-3xs"
+                                    : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
+                                }`}
+                              >
+                                {st}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="flex justify-between items-center border-t border-dashed border-stone-150 pt-3 text-xs">
+                            <span className="font-bold text-stone-500">via {order.paymentMethod.toUpperCase()}</span>
+                            <span className="text-sm font-extrabold text-stone-850">₹{order.totalAmount}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-20 text-center px-4 bg-white border border-stone-150 rounded-3xl mt-2 gap-4">
+                    <span className="text-5xl">📦</span>
+                    <div>
+                      <h4 className="text-sm font-bold text-stone-850">No orders placed</h4>
+                      <p className="text-xs text-stone-400 mt-1 max-w-[200px] mx-auto leading-relaxed">
+                        When residents place orders, they will show up here for you to fulfill.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* ADMIN SETTINGS SCREEN                                    */}
+        {/* ======================================================== */}
+        {activeScreen === "admin-settings" && profile?.role === "admin" && (
+          <div className="flex flex-col py-4 px-4 gap-5">
+            <div className="flex justify-between items-center border-b border-stone-100 pb-2.5">
+              <h2 className="text-lg font-black text-stone-900 tracking-tight uppercase">HQ Settings</h2>
+              <span className="text-[10px] font-extrabold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-100 uppercase tracking-wider">
+                Admin
+              </span>
+            </div>
+
+            <div className="bg-white border border-stone-150 rounded-3xl p-5 shadow-xs flex flex-col gap-4">
+              <div className="flex items-center justify-between pb-2.5 border-b border-stone-100">
+                <span className="text-xs font-bold text-stone-700">Enable micro-delivery service</span>
+                <input
+                  type="checkbox"
+                  checked={editEnabled}
+                  onChange={(e) => setEditEnabled(e.target.checked)}
+                  className="w-4 h-4 text-emerald-600 bg-stone-100 border-stone-300 rounded focus:ring-emerald-500 focus:ring-2 cursor-pointer"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-stone-500">Delivery Fee (₹)</label>
+                <input
+                  type="number"
+                  placeholder="30"
+                  value={editFee}
+                  onChange={(e) => setEditFee(e.target.value)}
+                  className="h-11 px-4 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-stone-500">Free Delivery Above (₹)</label>
+                <input
+                  type="number"
+                  placeholder="500"
+                  value={editFreeAbove}
+                  onChange={(e) => setEditFreeAbove(e.target.value)}
+                  className="h-11 px-4 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-stone-500">Estimated Delivery Time</label>
+                <input
+                  type="text"
+                  placeholder="10 mins"
+                  value={editTime}
+                  onChange={(e) => setEditTime(e.target.value)}
+                  className="h-11 px-4 bg-stone-50 border border-stone-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 focus:bg-white transition-all"
+                />
+              </div>
+
+              <button
+                onClick={async () => {
+                  await updateDeliverySettings({
+                    deliveryFee: Number(editFee),
+                    freeDeliveryAbove: Number(editFreeAbove),
+                    deliveryTime: editTime,
+                    isDeliveryEnabled: editEnabled,
+                  });
+                  alert("Delivery Settings updated successfully!");
+                }}
+                className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs tracking-wider uppercase rounded-xl shadow-3xs cursor-pointer active:scale-98 transition-all flex items-center justify-center font-bold"
+              >
+                Save Settings
+              </button>
+            </div>
           </div>
         )}
 
@@ -688,12 +1039,19 @@ export default function Home() {
                 <li className="flex items-center gap-2"><span className="text-emerald-500">✔</span> Doorstep drop-off or lobby delivery choices.</li>
               </ul>
             </div>
+
+            <button
+              onClick={() => signOut()}
+              className="mt-2 w-full h-12 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 font-bold text-sm rounded-2xl flex items-center justify-center cursor-pointer transition-colors"
+            >
+              Sign Out from Account
+            </button>
           </div>
         )}
       </div>
 
       {/* Sticky Cart Button */}
-      {cartItemCount > 0 && (activeScreen === "home" || activeScreen === "products") && (
+      {cartItemCount > 0 && profile?.role === "customer" && (activeScreen === "home" || activeScreen === "products") && (
         <div className="absolute bottom-16 left-0 right-0 px-4 pb-2 pt-1 z-30 select-none pointer-events-none">
           <button
             onClick={() => { setActiveScreen("checkout"); setActiveTab("cart"); }}
@@ -715,7 +1073,7 @@ export default function Home() {
       )}
 
       {/* Sticky Place Order Button */}
-      {activeScreen === "checkout" && (
+      {activeScreen === "checkout" && profile?.role === "customer" && (
         <div className="absolute bottom-16 left-0 right-0 px-4 pb-2 pt-1 z-30 select-none">
           <button
             onClick={handlePlaceOrder}
@@ -738,7 +1096,7 @@ export default function Home() {
         </div>
       )}
 
-      <BottomNav activeTab={activeTab} onTabChange={handleTabChange} cartItemCount={cartItemCount} />
+      <BottomNav activeTab={activeTab} onTabChange={handleTabChange} cartItemCount={cartItemCount} role={profile?.role} />
     </MobileFrame>
   );
 }

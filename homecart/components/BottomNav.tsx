@@ -5,31 +5,50 @@ import {
   CartIcon,
   OrdersIcon,
   ProfileIcon,
+  SettingsIcon,
 } from "./Icons";
+import { UserRole } from "@/types/domain.types";
 
 interface BottomNavProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   cartItemCount: number;
+  role?: UserRole;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   onTabChange,
   cartItemCount,
+  role,
 }) => {
-  const navItems = [
-    { id: "home", label: "Home", icon: <HomeIcon size={20} /> },
-    { id: "search", label: "Search", icon: <SearchIcon size={20} /> },
-    {
-      id: "cart",
-      label: "Cart",
-      icon: <CartIcon size={20} />,
-      badge: cartItemCount > 0 ? cartItemCount : undefined,
-    },
-    { id: "orders", label: "Orders", icon: <OrdersIcon size={20} /> },
-    { id: "profile", label: "Profile", icon: <ProfileIcon size={20} /> },
-  ];
+  const navItems = React.useMemo(() => {
+    if (role === "shopkeeper") {
+      return [
+        { id: "orders", label: "Orders", icon: <OrdersIcon size={20} /> },
+        { id: "profile", label: "Profile", icon: <ProfileIcon size={20} /> },
+      ];
+    }
+    if (role === "admin") {
+      return [
+        { id: "orders", label: "Orders", icon: <OrdersIcon size={20} /> },
+        { id: "settings", label: "Settings", icon: <SettingsIcon size={20} /> },
+        { id: "profile", label: "Profile", icon: <ProfileIcon size={20} /> },
+      ];
+    }
+    return [
+      { id: "home", label: "Home", icon: <HomeIcon size={20} /> },
+      { id: "search", label: "Search", icon: <SearchIcon size={20} /> },
+      {
+        id: "cart",
+        label: "Cart",
+        icon: <CartIcon size={20} />,
+        badge: cartItemCount > 0 ? cartItemCount : undefined,
+      },
+      { id: "orders", label: "Orders", icon: <OrdersIcon size={20} /> },
+      { id: "profile", label: "Profile", icon: <ProfileIcon size={20} /> },
+    ];
+  }, [role, cartItemCount]);
 
   return (
     <div className="w-full bg-white/95 backdrop-blur-md border-t border-stone-200/60 shadow-[0_-8px_24px_rgba(0,0,0,0.03)] px-3 py-1 flex items-center justify-around shrink-0 select-none z-40 relative">
